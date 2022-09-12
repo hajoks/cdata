@@ -1,20 +1,32 @@
-import ctypes
-import time
-from dataclasses import dataclass
-from typing import List
+from ctypes import BigEndianStructure, c_char, c_uint32
+from dataclasses import dataclass, field
 
 import pytest
-from cdata import DataClassLittleEndianStructureMixIn, Endian, field
+from cdata import CDataMixIn, metadata
+
+# from typing import List
 
 
 @dataclass
-class MixInItem(DataClassLittleEndianStructureMixIn):
-    item_number: int = field(ctypes.c_uint32)
-    item_string: str = field(ctypes.c_char * 10)
+class Base(CDataMixIn):
+    _cdata_base_ = BigEndianStructure
+    _cdata_pack_ = 1
 
 
 @dataclass
-class MixInData(DataClassLittleEndianStructureMixIn):
+class Item(Base):
+    number: int = field(metadata=metadata(c_uint32))
+    string: str = field(metadata=metadata(c_char * 10))
+
+
+@pytest.fixture
+def item():
+    return Item(1, "abcde")
+
+
+"""
+@dataclass
+class MixInData(Base):
     number: int = field(ctypes.c_uint32)
     string: str = field(ctypes.c_char * 20)
     item: MixInItem = field(MixInItem.ctype())
@@ -22,15 +34,8 @@ class MixInData(DataClassLittleEndianStructureMixIn):
     int_array: List[int] = field(ctypes.c_uint16 * 6)
     byte_array: List[int] = field(ctypes.c_byte * 7)
 
-
-@dataclass
-class PureData:
-    number: int
-    string: str
-
-
 @pytest.fixture
-def mixin_data():
+def item():
     return MixInData(
         1,
         "Data",
@@ -39,83 +44,14 @@ def mixin_data():
         [i for i in range(6)],
         [i for i in range(7)],
     )
+"""
 
 
-def test_cdata_endian(mixin_data):
-    assert mixin_data.cdata_endian == Endian.LITTLE
-
-
-def test_cdata_pack(mixin_data):
-    assert mixin_data.cdata_pack == 1
-
-
-def test_to_ctype(mixin_data):
-    s_not_cached = time.time()
-    c = mixin_data.to_ctype()
-    e_not_cached = time.time()
-    assert c._pack_ == 1
+def test_integer(item):
+    c = item.to_ctype()
     assert c.number == 1
-    assert c.string == b"Data"
-    assert c.item.item_number == 0
-    assert c.item.item_string == b"A"
-    assert c.items[0].item_number == 0
-    assert c.items[0].item_string == b"0"
-    assert c.items[1].item_number == 1
-    assert c.items[1].item_string == b"1"
-    assert c.int_array[0] == 0
-    assert c.int_array[5] == 5
-    assert c.byte_array[0] == 0
-    assert c.byte_array[6] == 6
-
-    s_cached = time.time()
-    c = mixin_data.to_ctype()
-    e_cached = time.time()
-
-    assert e_cached - s_cached < e_not_cached - s_not_cached
 
 
-def test_to_ctype_hook(mixin_data):
-    def encode_hook(cname, ctype, cvalue, dataclass_value):
-        if cname == "string":
-            return b"hooked_value"
-        return None
-
-    c = mixin_data.to_ctype(hook=encode_hook)
-    assert c.string == b"hooked_value"
-
-
-def test_from_ctype(mixin_data):
-    c = mixin_data.to_ctype()
-    o = MixInData.from_ctype(c)
-    assert o == mixin_data
-
-
-def test_from_ctype_hook(mixin_data):
-    c = mixin_data.to_ctype()
-
-    def decode_hook(cname, ctype, cvalue):
-        if cname == "string":
-            return "hooked_value"
-        return None
-
-    o = MixInData.from_ctype(c, hook=decode_hook)
-    assert o.string == "hooked_value"
-
-
-def test_from_buffer(mixin_data):
-    b = bytearray(mixin_data.to_ctype())
-    o = MixInData.from_buffer(b)
-    assert o == mixin_data
-
-    number = ctypes.c_uint32(9999)
-    string = (ctypes.c_char * 10)(b"A", b"B", b"C", b"D", b"E", b"F", b"G", b"H", b"I", b"J")
-    buffer = bytearray(number) + bytearray(string)
-    i = MixInItem.from_buffer(buffer)
-    assert i.item_number == 9999
-    assert i.item_string == "ABCDEFGHIJ"
-
-
-def test_from_buffer_copy(mixin_data):
-    b = bytes(mixin_data.to_ctype())
-    o = MixInData.from_buffer_copy(b)
-    assert o == mixin_data
+def test_str(item):
+    c = item.to_ctype()
+    assert c.string == "abcde"
